@@ -650,6 +650,8 @@ class DataInstance(object):
     def __setitem__(self, key, value):
         self._forms.__setitem__(key, value)
 
+    def keys(self):
+        return self._forms.keys()
 
 #-------------------------------------------------------------------------------
 class OutputFormatException(exceptions21.Music21Exception):
@@ -1499,7 +1501,7 @@ class Test(unittest.TestCase):
         with self.assertRaises(AttributeError):
             di['flat'] = None
         self.assertEqual(len(di['flat']), 291)
-        
+
 
     def testDataSetOutput(self):
         from music21 import features
