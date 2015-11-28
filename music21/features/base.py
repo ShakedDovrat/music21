@@ -13,6 +13,14 @@ from __future__ import print_function
 
 import unittest
 import os
+import sys
+try:
+    import joblib  # for parallel computation
+except ImportError:
+    parallelModuleAvailable = False
+else:
+    parallelModuleAvailable = True
+parallelModuleName = 'joblib'
 
 from music21 import common
 from music21 import converter
@@ -1029,34 +1037,25 @@ class DataSet(object):
         self.dataInstances.append(di)
         self.streams.append(s)
 
-    def process(self):
+    def process(self, n_jobs=-1 if parallelModuleAvailable else 1):
         '''
         Process all Data with all FeatureExtractors. 
         Processed data is stored internally as numerous Feature objects. 
         '''
-        # clear features
-        self._features = []
-        for data in self.dataInstances:
-            row = []
-            for fe in self._featureExtractors:
-                fe.setData(data)
-                # in some cases there might be problem; to not fail 
-                try:
-                    fReturned = fe.extract()
-                except Exception as e: # for now take any error  # pylint: disable=broad-except
-                    fList = ['failed feature extractor:', fe, str(e)]
-                    if self.quiet is True:                   
-                        environLocal.printDebug(fList)
-                    else:
-                        environLocal.warn(fList)
-                    if self.failFast is True:
-                        raise e
-                    # provide a blank feature extractor
-                    fReturned = fe.getBlankFeature()
+        argumentList = (self._featureExtractors, self.quiet, self.failFast)
+        if parallelModuleAvailable:
+            parallel = joblib.Parallel(n_jobs=n_jobs)
+            self._features = parallel(joblib.delayed(_process_single_data_instance)(data, *argumentList)
+                                      for data in self.dataInstances)
+        else:
+            if n_jobs != 1:
+                warnList = ['parallel computation disabled since module "%s" is unavailable.' % parallelModuleName,
+                            'Use n_jobs=1 to disable this warning']
+                environLocal.warn(warnList)
+            self._features = [_process_single_data_instance(data, *argumentList)
+                              for data in self.dataInstances]
 
-                row.append(fReturned) # get feature and store
-            # rows will align with data the order of DataInstances
-            self._features.append(row)
+
 
     def getFeaturesAsList(self, includeClassLabel=True, includeId=True, concatenateLists=True):
         '''
@@ -1147,7 +1146,30 @@ class DataSet(object):
                                    '%s or format %s' % (fp, format))
 
         outputFormat.write(fp=fp, includeClassLabel=includeClassLabel)
-        
+
+
+#@staticmethod
+def _process_single_data_instance(data, featureExtractors, quiet, failFast):
+    def _extract_single_feature(featureExtractor):
+        featureExtractor.setData(data)
+        # in some cases there might be problem; to not fail
+        try:
+            fReturned = featureExtractor.extract()
+        except Exception as e: # for now take any error  # pylint: disable=broad-except
+            fList = ['failed feature extractor:', featureExtractor, str(e)]
+            if quiet is True:
+                environLocal.printDebug(fList)
+            else:
+                environLocal.warn(fList)
+            if failFast is True:
+                raise e
+            # provide a blank feature extractor
+            fReturned = featureExtractor.getBlankFeature()
+        return fReturned
+
+    return [_extract_single_feature(fe) for fe in featureExtractors]
+
+
 def allFeaturesAsList(streamInput):
     '''
     returns a tuple containing ALL currentingly implemented feature extractors. The first
