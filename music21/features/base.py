@@ -246,11 +246,12 @@ class StreamForms(object):
             self._base = None
 
         # basic data storage is a dictionary
-        self._forms = {}    
+        self._forms = {}
+        self._user_forms = {} # user-defined forms
 
     def keys(self):
         # will only return forms that are established
-        return self._forms.keys()
+        return self._forms.keys() + self._user_forms.keys()
 
     def _prepareStream(self, streamObj):
         '''
@@ -262,6 +263,18 @@ class StreamForms(object):
         return streamObj
 
     def __getitem__(self, key):
+        # first, try to find the item as a pre-defined form
+        try:
+            return self._get_item_from_pre_defined_forms(key)
+        # if it's not pre-defined, try to find it in the user-defined forms
+        except AttributeError:
+            if key in self._user_forms.keys():
+                return self._user_forms[key]
+        # if it's also not user-defined, rethrow the AttributeError
+            else:
+                raise
+
+    def _get_item_from_pre_defined_forms(self, key):
         '''Get a form of this Stream, using a cached version if available.
         '''
         # first, check for cached version
@@ -513,11 +526,21 @@ class StreamForms(object):
         elif key in ['assembledLyrics']:
             self._forms['assembledLyrics'] = text.assembleLyrics(self._base)
             return self._forms['assembledLyrics']
-        
+
         else:
             raise AttributeError('no such attribute: %s' % key)
 
-        
+    def __setitem__(self, key, value):
+        # first, check whether the key is pre-defined
+        try:
+            self._get_item_from_pre_defined_forms(key)
+        # if it's not, add it to the user-defined forms
+        except AttributeError:
+            self._user_forms[key] = value
+        # if it is, throw an error
+        else:
+            raise AttributeError('Cannot override key of pre-defined form: %s' % key)
+
 
 
 
@@ -624,6 +647,8 @@ class DataInstance(object):
         # will raise an attribute error if there is a problem
         return self._forms[key]
 
+    def __setitem__(self, key, value):
+        self._forms.__setitem__(key, value)
 
 
 #-------------------------------------------------------------------------------
@@ -1454,6 +1479,27 @@ class Test(unittest.TestCase):
   'offsetSeconds': 3.5,
   'voiceIndex': None}]""", pformat(di['secondsMap']))
 
+
+    def testStreamFormsD(self):
+        '''
+        Tests the user-defined forms feature
+        '''
+        from music21 import features
+
+        s = corpus.parse('corelli/opus3no1/1grave')
+        di = features.DataInstance(s)
+
+        # enable setting a key
+        with self.assertRaises(AttributeError):
+            di['user-defined-key']
+        di['user-defined-key'] = 'user-defined-value'
+        self.assertEqual(di['user-defined-key'], 'user-defined-value')
+
+        # prevent override of pre-defined keys, even if they are not constructed yet
+        with self.assertRaises(AttributeError):
+            di['flat'] = None
+        self.assertEqual(len(di['flat']), 291)
+        
 
     def testDataSetOutput(self):
         from music21 import features
